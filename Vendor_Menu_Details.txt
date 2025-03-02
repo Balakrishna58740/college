@@ -1,0 +1,4 @@
+Vendor Username: 1
+Item: Chowmein, Price: 1200.0
+Item: Paneer Tikka, Price: 100.0
+Item: Mo:Mo, Price: 189.0
