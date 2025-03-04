@@ -17,11 +17,13 @@ public class RunnerDashboard extends JFrame {
     private JTable pendingTasksTable, activeTasksTable, completedTasksTable;
     private double totalEarnings = 0.0;
 
+
     public RunnerDashboard(String username) {
         this.username = username;
         initializeUI();
         loadTasks();
         calculateEarnings();
+        initNotificationPanel();
     }
 
     private void initializeUI() {
@@ -116,124 +118,142 @@ public class RunnerDashboard extends JFrame {
         setVisible(true);
     }
 
-    private void loadTasks() {
-        pendingTasksModel.setRowCount(0);
-        activeTasksModel.setRowCount(0);
-        completedTasksModel.setRowCount(0);
+    // New notification panel added to the EAST side
+    private void initNotificationPanel() {
+        JPanel notificationPanel = new JPanel(new BorderLayout());
+        notificationPanel.setBorder(BorderFactory.createTitledBorder("Notifications"));
 
-        List<DeliveryTask> allTasks = loadTasksFromFile();
+        DefaultTableModel notificationModel = new DefaultTableModel(
+                new Object[]{"Time", "Message"}, 0
+        );
+        JTable notificationTable = new JTable(notificationModel);
 
-        for (DeliveryTask task : allTasks) {
-            switch (task.getStatus()) {
-                case "Pending":
-                    if (task.getAssignedRunner() == null ||
-                            task.getAssignedRunner().isEmpty() ||
-                            task.getAssignedRunner().equals(username)) {
-                        pendingTasksModel.addRow(new Object[]{
-                                task.getOrderId(),
-                                task.getCustomer(),
-                                task.getItems(),
-                                task.getLocation(),
-                                task.getOrderTime(),
-                                String.format("RM %.2f", task.getFee())
+        javax.swing.Timer timer = new javax.swing.Timer(5000, e -> {
+            notificationModel.setRowCount(0);
+            ArrayList<String> lines = Panel.returnFileLines("Notifications.txt");
+            SimpleDateFormat displayFormat = new SimpleDateFormat("HH:mm:ss");
+
+            for (String line : lines) {
+                if (line.contains("User: " + username)) {
+                    String[] parts = line.split(", ");
+                    try {
+                        Date date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                                .parse(parts[3].split(": ")[1]);
+                        notificationModel.addRow(new Object[]{
+                                displayFormat.format(date),
+                                parts[1].split("Message: ")[1]
                         });
+                    } catch (Exception ex) {
+                        ex.printStackTrace(); // Handle parsing errors
                     }
-                    break;
-                case "Accepted":
-                case "Picked Up":
-                    if (task.getAssignedRunner().equals(username)) {
-                        activeTasksModel.addRow(new Object[]{
-                                task.getOrderId(),
-                                task.getCustomer(),
-                                task.getItems(),
-                                task.getLocation(),
-                                task.getOrderTime(),
-                                task.getStatus(),
-                                String.format("RM %.2f", task.getFee())
-                        });
-                    }
-                    break;
-                case "Delivered":
-                    if (task.getAssignedRunner().equals(username)) {
-                        completedTasksModel.addRow(new Object[]{
-                                task.getOrderId(),
-                                task.getCustomer(),
-                                task.getItems(),
-                                task.getLocation(),
-                                task.getCompletionTime(),
-                                String.format("RM %.2f", task.getFee())
-                        });
-                    }
-                    break;
+                }
+            }
+        });
+
+        timer.start();
+        notificationPanel.add(new JScrollPane(notificationTable), BorderLayout.CENTER);
+        add(notificationPanel, BorderLayout.EAST);
+    }
+
+    private void updateNotifications(DefaultTableModel model) {
+        model.setRowCount(0);
+        ArrayList<String> lines = Panel.returnFileLines("Notifications.txt");
+        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+
+        for (String line : lines) {
+            if (line.contains("User: " + this.username)) {
+                String[] parts = line.split(", ");
+                model.addRow(new Object[]{
+                        sdf.format(new Date()),
+                        parts[1].replace("Message: ", "")
+                });
             }
         }
     }
 
-    private List<DeliveryTask> loadTasksFromFile() {
-        List<DeliveryTask> tasks = new ArrayList<>();
-        ArrayList<String> lines = Panel.returnFileLines("Delivery_Tasks.txt");
+    // In RunnerDashboard.java
+    private void acceptTask() {
+        int selectedRow = pendingTasksTable.getSelectedRow();
+        String orderId = (String) pendingTasksModel.getValueAt(selectedRow, 0);
+        updateTaskStatus(orderId, "Accepted"); // Updates Delivery_Tasks.txt
+        Panel.sendNotification(customer, "Runner accepted your order", "DELIVERY_UPDATE");
+    }
 
-        for (String line : lines) {
-            if (!line.trim().isEmpty() && !line.equals("*** EOF ***")) {
-                String[] parts = line.split(",");
-                if (parts.length >= 7) {
-                    DeliveryTask task = new DeliveryTask();
-                    for (String part : parts) {
-                        String[] keyValue = part.trim().split(":");
-                        if (keyValue.length == 2) {
-                            String key = keyValue[0].trim();
-                            String value = keyValue[1].trim();
-
-                            switch (key) {
-                                case "OrderID":
-                                    task.setOrderId(value);
-                                    break;
-                                case "Customer":
-                                    task.setCustomer(value);
-                                    break;
-                                case "Items":
-                                    task.setItems(value);
-                                    break;
-                                case "Location":
-                                    task.setLocation(value);
-                                    break;
-                                case "OrderTime":
-                                    task.setOrderTime(value);
-                                    break;
-                                case "CompletionTime":
-                                    task.setCompletionTime(value);
-                                    break;
-                                case "Status":
-                                    task.setStatus(value);
-                                    break;
-                                case "Fee":
-                                    task.setFee(Double.parseDouble(value));
-                                    break;
-                                case "AssignedRunner":
-                                    task.setAssignedRunner(value);
-                                    break;
-                            }
-                        }
-                    }
-                    tasks.add(task);
+    // Add automatic runner assignment
+    private void autoAssignRunner(String orderId) {
+        ArrayList<String> runners = Panel.returnFileLines("Delivery_Runner_Credentials.txt");
+        boolean assigned = false;
+        for (String line : runners) {
+            if (line.startsWith("Username: ")) {
+                String runner = line.split(": ")[1];
+                if (!isRunnerBusy(runner)) {
+                    updateTaskInFile(orderId, "Assigned", runner);
+                    assigned = true;
+                    break;
                 }
             }
         }
+        if (!assigned) {
+            String customer = getCustomerFromOrder(orderId);
+            Panel.writeToFile("Notifications.txt", "Customer: " + customer +
+                    ", Message: No available runners - please choose takeaway");
+        }
+    }
+
+    // Helper method to determine if a runner is busy
+    private boolean isRunnerBusy(String runner) {
+        // Stub implementation: In a real system, check runner's current assignments.
+        return false;
+    }
+    private void loadTasks() {
+        // Load pending tasks from file or database
+        List<DeliveryTask> pendingTasks = loadTasksFromFile("pending"); // Example: Load pending tasks
+        updateTableModel(pendingTasksModel, pendingTasks);
+
+        // Load active tasks from file or database
+        List<DeliveryTask> activeTasks = loadTasksFromFile("active"); // Example: Load active tasks
+        updateTableModel(activeTasksModel, activeTasks);
+
+        // Load completed tasks from file or database
+        List<DeliveryTask> completedTasks = loadTasksFromFile("completed"); // Example: Load completed tasks
+        updateTableModel(completedTasksModel, completedTasks);
+    }
+
+    private List<DeliveryTask> loadTasksFromFile(String taskType) {
+        List<DeliveryTask> tasks = new ArrayList<>();
+        // Implement the logic to load tasks based on taskType (pending, active, completed) from the file or database
+        // This can involve reading from files like "Delivery_Tasks.txt" and filtering based on task type
         return tasks;
     }
 
-    private void acceptTask() {
-        int selectedRow = pendingTasksTable.getSelectedRow();
-        if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, "Please select a task to accept!");
-            return;
+    private void updateTableModel(DefaultTableModel model, List<DeliveryTask> tasks) {
+        model.setRowCount(0); // Clear existing rows
+        for (DeliveryTask task : tasks) {
+            model.addRow(new Object[]{
+                    task.getOrderId(),
+                    task.getCustomer(),
+                    task.getItems(),
+                    task.getLocation(),
+                    task.getOrderTime(), // Change from task.getTime() to task.getOrderTime()
+                    task.getFee()
+            });
         }
+    }
 
-        String orderId = (String) pendingTasksModel.getValueAt(selectedRow, 0);
-        updateTaskInFile(orderId, "Accepted", username);
-
-        JOptionPane.showMessageDialog(this, "Task accepted successfully!");
-        loadTasks();
+    // Helper method to retrieve customer name from Order_Info.txt based on orderId
+    private String getCustomerFromOrder(String orderId) {
+        ArrayList<String> lines = Panel.returnFileLines("Order_Info.txt");
+        for (String line : lines) {
+            if (line.contains("OrderID: " + orderId)) {
+                String[] parts = line.split(", ");
+                for (String part : parts) {
+                    if (part.startsWith("Customer: ")) {
+                        return part.split(": ")[1];
+                    }
+                }
+            }
+        }
+        return "Unknown Customer";
     }
 
     private void declineTask() {
@@ -242,41 +262,32 @@ public class RunnerDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "Please select a task to decline!");
             return;
         }
-
         String orderId = (String) pendingTasksModel.getValueAt(selectedRow, 0);
-        // If the task is already assigned to this runner, mark it as declined
         updateTaskInFile(orderId, "Pending", "");
-
         JOptionPane.showMessageDialog(this, "Task declined!");
         loadTasks();
     }
 
-    private void updateTaskStatus(String newStatus) {
-        int selectedRow = activeTasksTable.getSelectedRow();
-        if (selectedRow == -1) {
-            JOptionPane.showMessageDialog(this, "Please select a task to update!");
-            return;
-        }
+    private void updateTaskStatus(String orderId, String newStatus) {
+        ArrayList<String> lines = Panel.returnFileLines("Delivery_Tasks.txt");
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-        String orderId = (String) activeTasksModel.getValueAt(selectedRow, 0);
-
-        // If task is marked as delivered, add completion time
-        String completionTime = "";
-        if (newStatus.equals("Delivered")) {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            completionTime = sdf.format(new Date());
-        }
-
-        updateTaskInFile(orderId, newStatus, username, completionTime);
-
-        // Update order status in Order_Info.txt as well
-        updateOrderStatus(orderId, newStatus);
-
-        JOptionPane.showMessageDialog(this, "Task status updated to: " + newStatus);
-        loadTasks();
-
-        if (newStatus.equals("Delivered")) {
-            calculateEarnings();
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter("Delivery_Tasks.txt"))) {
+            for (String line : lines) {
+                if (line.contains("OrderID: " + orderId)) {
+                    // Update status and timestamp
+                    line = line.replaceAll("Status: [^,]+", "Status: " + newStatus);
+                    if (newStatus.equals("Delivered")) {
+                        line += ", CompletionTime: " + sdf.format(new Date());
+                    }
+                }
+                writer.write(line + "\n");
+            }
+            // Notify customer
+            String customer = getCustomerFromOrder(orderId);
+            Panel.sendNotification(customer, "Order " + orderId + " status: " + newStatus, "DELIVERY_UPDATE");
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Error updating task status: " + e.getMessage());
         }
     }
 
@@ -287,18 +298,14 @@ public class RunnerDashboard extends JFrame {
     private void updateTaskInFile(String orderId, String newStatus, String runner, String completionTime) {
         ArrayList<String> lines = Panel.returnFileLines("Delivery_Tasks.txt");
         ArrayList<String> updatedLines = new ArrayList<>();
-
         for (String line : lines) {
             if (line.contains("OrderID:" + orderId)) {
-                // Parse the existing line
                 String[] parts = line.split(",");
                 StringBuilder updatedLine = new StringBuilder();
-
                 for (String part : parts) {
                     String[] keyValue = part.trim().split(":");
                     if (keyValue.length == 2) {
                         String key = keyValue[0].trim();
-
                         if (key.equals("Status")) {
                             updatedLine.append("Status: ").append(newStatus);
                         } else if (key.equals("AssignedRunner")) {
@@ -313,24 +320,18 @@ public class RunnerDashboard extends JFrame {
                     }
                     updatedLine.append(", ");
                 }
-
-                // If CompletionTime wasn't in the original line but we need to add it
                 if (!line.contains("CompletionTime") && !completionTime.isEmpty()) {
                     updatedLine.append("CompletionTime: ").append(completionTime);
                 }
-
-                // Remove trailing comma and space if present
                 String finalLine = updatedLine.toString();
                 if (finalLine.endsWith(", ")) {
                     finalLine = finalLine.substring(0, finalLine.length() - 2);
                 }
-
                 updatedLines.add(finalLine);
             } else {
                 updatedLines.add(line);
             }
         }
-
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("Delivery_Tasks.txt"))) {
             for (String line : updatedLines) {
                 writer.write(line);
@@ -344,20 +345,16 @@ public class RunnerDashboard extends JFrame {
     private void updateOrderStatus(String orderId, String newStatus) {
         ArrayList<String> lines = Panel.returnFileLines("Order_Info.txt");
         ArrayList<String> updatedLines = new ArrayList<>();
-
         for (String line : lines) {
             if (line.contains("OrderID: " + orderId)) {
-                // Handle different formats in the line
                 if (line.contains("Status: ")) {
                     line = line.replaceAll("Status: [^,]+", "Status: " + newStatus);
                 } else {
-                    // If status field doesn't exist, append it
                     line += ", Status: " + newStatus;
                 }
             }
             updatedLines.add(line);
         }
-
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("Order_Info.txt"))) {
             for (String line : updatedLines) {
                 writer.write(line);
@@ -366,23 +363,50 @@ public class RunnerDashboard extends JFrame {
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, "Error updating order status: " + e.getMessage());
         }
+
+        // Handle declined orders by refunding customer credit
+        if (newStatus.equals("Declined")) {
+            refundCustomerCredit(orderId);
+        }
+
+        // Send notification to customer
+        String customer = getCustomerFromOrder(orderId);
+        String notification = String.format("Order %s status changed to %s", orderId, newStatus);
+        Panel.writeToFile("Notifications.txt", "Customer: " + customer + ", Message: " + notification);
+    }
+
+    // Method to refund customer credit if an order is declined
+    private void refundCustomerCredit(String orderId) {
+        ArrayList<String> orderLines = Panel.returnFileLines("Order_History.txt");
+        for (String line : orderLines) {
+            if (line.startsWith(orderId + ", ")) {
+                double amount = Double.parseDouble(line.split(", ")[2]);
+                String customer = line.split(", ")[3];
+
+                ArrayList<String> creditLines = Panel.returnFileLines("Customer_Credits.txt");
+                for (int i = 0; i < creditLines.size(); i++) {
+                    if (creditLines.get(i).contains("Username: " + customer)) {
+                        double current = Double.parseDouble(creditLines.get(i).split(", Credit: ")[1]);
+                        creditLines.set(i, String.format("Username: %s, Credit: %.2f", customer, current + amount));
+                        Panel.writeFile("Customer_Credits.txt", creditLines);
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     private void calculateEarnings() {
         totalEarnings = 0.0;
         String selectedPeriod = (String) reportPeriodCombo.getSelectedItem();
-
-        List<DeliveryTask> completedTasks = loadTasksFromFile().stream()
+        List<DeliveryTask> completedTasks = loadTasksFromFile("completed").stream() // Specify "completed"
                 .filter(task -> task.getStatus().equals("Delivered") &&
                         task.getAssignedRunner() != null &&
                         task.getAssignedRunner().equals(username))
                 .collect(Collectors.toList());
-
-        // Apply time filter based on selected period
         Date now = new Date();
         Calendar cal = Calendar.getInstance();
         cal.setTime(now);
-
         switch (selectedPeriod) {
             case "Daily":
                 cal.add(Calendar.DAY_OF_MONTH, -1);
@@ -397,13 +421,10 @@ public class RunnerDashboard extends JFrame {
                 cal.add(Calendar.YEAR, -1);
                 break;
             case "All Time":
-                // No filtering needed
                 break;
         }
-
         Date filterDate = cal.getTime();
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
         for (DeliveryTask task : completedTasks) {
             if (!selectedPeriod.equals("All Time")) {
                 try {
@@ -412,14 +433,11 @@ public class RunnerDashboard extends JFrame {
                         continue;
                     }
                 } catch (Exception e) {
-                    // If there's an error parsing the date, include the task
                     System.err.println("Error parsing date: " + task.getCompletionTime());
                 }
             }
-
             totalEarnings += task.getFee();
         }
-
         earningsLabel.setText(String.format("Total Earnings (%s): RM %.2f", selectedPeriod, totalEarnings));
     }
 
@@ -437,34 +455,25 @@ public class RunnerDashboard extends JFrame {
 
         public String getOrderId() { return orderId; }
         public void setOrderId(String orderId) { this.orderId = orderId; }
-
         public String getCustomer() { return customer; }
         public void setCustomer(String customer) { this.customer = customer; }
-
         public String getItems() { return items; }
         public void setItems(String items) { this.items = items; }
-
         public String getLocation() { return location; }
         public void setLocation(String location) { this.location = location; }
-
         public String getOrderTime() { return orderTime; }
         public void setOrderTime(String orderTime) { this.orderTime = orderTime; }
-
         public String getCompletionTime() { return completionTime; }
         public void setCompletionTime(String completionTime) { this.completionTime = completionTime; }
-
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
-
         public double getFee() { return fee; }
         public void setFee(double fee) { this.fee = fee; }
-
         public String getAssignedRunner() { return assignedRunner; }
         public void setAssignedRunner(String assignedRunner) { this.assignedRunner = assignedRunner; }
     }
 
     public static void main(String[] args) {
-        // Test entry point
         SwingUtilities.invokeLater(() -> new RunnerDashboard("test_runner").setVisible(true));
     }
 }

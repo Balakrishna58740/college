@@ -1,0 +1,9 @@
+User: 1, Message: New delivery task for Order 6077, Type: TASK_ASSIGNED, Time: 2025-03-04 10:34:16
+Vendor: 1, Message: New order 6077 from 1
+User: 1, Message: Order #6077 status changed to Accepted, Type: ORDER_STATUS, Time: 2025-03-04 10:34:48
+User: 1, Message: Order #6077 status changed to Ready, Type: ORDER_STATUS, Time: 2025-03-04 10:35:27
+User: 1, Message: Order #6834 status changed to Accepted, Type: ORDER_STATUS, Time: 2025-03-04 10:35:41
+User: 1, Message: Order #6834 status changed to Ready, Type: ORDER_STATUS, Time: 2025-03-04 10:35:45
+Vendor: 1, Message: New order 3188 from 1
+User: 1, Message: Order #3188 status changed to Accepted, Type: ORDER_STATUS, Time: 2025-03-04 10:41:16
+User: 1, Message: Order #3188 status changed to Ready, Type: ORDER_STATUS, Time: 2025-03-04 10:41:20

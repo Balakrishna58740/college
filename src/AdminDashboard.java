@@ -3,23 +3,33 @@ import javax.swing.table.AbstractTableModel;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
+import javax.swing.table.DefaultTableModel;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+
 
 public class AdminDashboard extends JFrame {
     private final CRUD_User crud = new CRUD_User();
     private JTable userTable;
     private UserTableModel tableModel;
     private JComboBox<String> userTypeCombo;
+    private String username;
 
+
+    // Modified constructor
     public AdminDashboard() {
         initializeUI();
         setupTable();
         setupEventListeners();
+        setLocationRelativeTo(null); // Center window
     }
 
+    // Updated initializeUI() method
     private void initializeUI() {
         setTitle("Admin Dashboard");
         setSize(800, 600);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Changed to dispose
         setLayout(new BorderLayout());
 
         // User type selection
@@ -34,11 +44,16 @@ public class AdminDashboard extends JFrame {
         userTable = new JTable(tableModel);
         add(new JScrollPane(userTable), BorderLayout.CENTER);
 
-        // Control buttons
+        // Modify control panel in initializeUI()
         JPanel controlPanel = new JPanel();
         addButton(controlPanel, "Add", this::addUser);
         addButton(controlPanel, "Edit", this::editUser);
         addButton(controlPanel, "Delete", this::deleteUser);
+        addButton(controlPanel, "Top-Up Credit", this::topUpCredit);
+        addButton(controlPanel, "Logout", e -> {
+            dispose();
+            new LoginFrame().setVisible(true);
+        });
         add(controlPanel, BorderLayout.SOUTH);
     }
 
@@ -62,12 +77,9 @@ public class AdminDashboard extends JFrame {
         return userType.replace(" ", "_") + "_Credentials.txt";
     }
 
+    // Remove the window closing listener in setupEventListeners()
     private void setupEventListeners() {
-        addWindowListener(new WindowAdapter() {
-            public void windowClosing(WindowEvent e) {
-                System.exit(0);
-            }
-        });
+        // Remove this entire WindowAdapter
     }
 
     private void addUser(ActionEvent e) {
@@ -87,7 +99,6 @@ public class AdminDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "Please select a user!");
             return;
         }
-
         String oldUsername = (String) tableModel.getValueAt(selectedRow, 0);
         String[] userData = showUserDialog("Edit User");
         if (userData != null) {
@@ -105,7 +116,6 @@ public class AdminDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "Please select a user!");
             return;
         }
-
         String username = (String) tableModel.getValueAt(selectedRow, 0);
         int confirm = JOptionPane.showConfirmDialog(
                 this,
@@ -113,7 +123,6 @@ public class AdminDashboard extends JFrame {
                 "Confirm Delete",
                 JOptionPane.YES_NO_OPTION
         );
-
         if (confirm == JOptionPane.YES_OPTION) {
             boolean success = crud.deleteUser(
                     getFilename((String) userTypeCombo.getSelectedItem()),
@@ -123,24 +132,106 @@ public class AdminDashboard extends JFrame {
         }
     }
 
+    // New method for credit top-up
+    private void topUpCredit(ActionEvent e) {
+        JTextField usernameField = new JTextField();
+        JTextField amountField = new JTextField();
+
+        Object[] message = {
+                "Customer Username:", usernameField,
+                "Top-Up Amount (RM):", amountField
+        };
+        int option = JOptionPane.showConfirmDialog(
+                this,
+                message,
+                "Credit Top-Up",
+                JOptionPane.OK_CANCEL_OPTION
+        );
+        if (option == JOptionPane.OK_OPTION) {
+            String username = usernameField.getText().trim();
+            String amountStr = amountField.getText().trim();
+
+            try {
+                double amount = Double.parseDouble(amountStr);
+                if (amount <= 0) throw new NumberFormatException();
+
+                // Update credit file
+                ArrayList<String> lines = Panel.returnFileLines("Customer_Credits.txt");
+                boolean found = false;
+
+                for (int i = 0; i < lines.size(); i++) {
+                    if (lines.get(i).startsWith("Username: " + username)) {
+                        double current = Double.parseDouble(lines.get(i).split(", Credit: ")[1]);
+                        lines.set(i, String.format("Username: %s, Credit: %.2f",
+                                username, current + amount));
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found) {
+                    lines.add(String.format("Username: %s, Credit: %.2f", username, amount));
+                }
+
+                Panel.writeFile("Customer_Credits.txt", lines);
+                JOptionPane.showMessageDialog(this, "Credit updated successfully!");
+
+            } catch (NumberFormatException ex) {
+                JOptionPane.showMessageDialog(this, "Invalid amount! Enter positive numbers only");
+            }
+        }
+    }
+    private void initNotificationPanel() {
+        JPanel notificationPanel = new JPanel(new BorderLayout());
+        notificationPanel.setBorder(BorderFactory.createTitledBorder("Notifications"));
+
+        DefaultTableModel notificationModel = new DefaultTableModel(
+                new Object[]{"Time", "Message"}, 0
+        );
+        JTable notificationTable = new JTable(notificationModel);
+
+        Timer timer = new Timer(5000, e -> {
+            notificationModel.setRowCount(0);
+            ArrayList<String> lines = Panel.returnFileLines("Notifications.txt");
+            SimpleDateFormat displayFormat = new SimpleDateFormat("HH:mm:ss");
+
+            for (String line : lines) {
+                if (line.contains("User: " + username)) {
+                    String[] parts = line.split(", ");
+                    try {
+                        Date date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                                .parse(parts[3].split(": ")[1]);
+                        notificationModel.addRow(new Object[]{
+                                displayFormat.format(date),
+                                parts[1].split("Message: ")[1]
+                        });
+                    } catch (Exception ex) {
+                        ex.printStackTrace(); // Handle parsing errors
+                    }
+                }
+            }
+        });
+
+        timer.start();
+        notificationPanel.add(new JScrollPane(notificationTable), BorderLayout.CENTER);
+        add(notificationPanel, BorderLayout.EAST);
+    }
+
     private String[] showUserDialog(String title) {
         JTextField usernameField = new JTextField();
         JPasswordField passwordField = new JPasswordField();
         JTextField displayNameField = new JTextField();
-
         Object[] message = {
                 "Username:", usernameField,
                 "Password:", passwordField,
                 "Display Name:", displayNameField
         };
-
         int option = JOptionPane.showConfirmDialog(
                 this,
                 message,
                 title,
                 JOptionPane.OK_CANCEL_OPTION
         );
-
         if (option == JOptionPane.OK_OPTION) {
             return new String[]{
                     usernameField.getText().trim(),

@@ -4,10 +4,11 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
+import java.util.*;
 import java.util.HashMap;
 import java.util.Map;
+import javax.swing.Timer;  // Make sure this is the only Timer import.
+
 
 public class VendorDashboard extends JFrame {
     private String username;
@@ -23,6 +24,7 @@ public class VendorDashboard extends JFrame {
         loadOrders();
         loadOrderHistory();
         loadReviews();
+        initNotificationPanel();
     }
 
     private void initializeUI() {
@@ -55,6 +57,17 @@ public class VendorDashboard extends JFrame {
         tabbedPane.addTab("Revenue Dashboard", revenuePanel);
 
         add(tabbedPane, BorderLayout.CENTER);
+
+        // Add logout button at bottom
+        JPanel logoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton logoutButton = new JButton("Logout");
+        logoutButton.addActionListener(e -> {
+            dispose();
+            new LoginFrame().setVisible(true);
+        });
+        logoutPanel.add(logoutButton);
+        add(logoutPanel, BorderLayout.SOUTH);
+
         setVisible(true);
     }
 
@@ -204,7 +217,6 @@ public class VendorDashboard extends JFrame {
         menuModel.setRowCount(0);
         ArrayList<String> lines = Panel.returnFileLines("Vendor_Menu_Details.txt");
         boolean inVendorSection = false;
-
         for (String line : lines) {
             if (line.startsWith("Vendor Username: " + username)) {
                 inVendorSection = true;
@@ -235,12 +247,20 @@ public class VendorDashboard extends JFrame {
                 return;
             }
 
-            // Add to file
+            // Prevent duplicate items in the menu table
+            for (int i = 0; i < menuModel.getRowCount(); i++) {
+                if (menuModel.getValueAt(i, 0).equals(itemName)) {
+                    JOptionPane.showMessageDialog(this, "Item already exists!");
+                    return;
+                }
+            }
+
             String entry = "Item: " + itemName + ", Price: " + price;
-            boolean vendorFound = false;
             ArrayList<String> lines = Panel.returnFileLines("Vendor_Menu_Details.txt");
 
             try (BufferedWriter writer = new BufferedWriter(new FileWriter("Vendor_Menu_Details.txt"))) {
+                boolean vendorFound = false;
+
                 for (String line : lines) {
                     writer.write(line + "\n");
                     if (line.equals("Vendor Username: " + username)) {
@@ -253,12 +273,13 @@ public class VendorDashboard extends JFrame {
                     writer.write("Vendor Username: " + username + "\n");
                     writer.write(entry + "\n");
                 }
+
             } catch (IOException e) {
                 JOptionPane.showMessageDialog(this, "Error updating menu file");
                 return;
             }
 
-            // Update table
+            // Update UI Table
             menuModel.addRow(new Object[]{itemName, price});
             itemNameField.setText("");
             priceField.setText("");
@@ -269,6 +290,7 @@ public class VendorDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "Please enter a valid price");
         }
     }
+
 
     private void editMenuItem() {
         int selectedRow = menuTable.getSelectedRow();
@@ -398,7 +420,44 @@ public class VendorDashboard extends JFrame {
             }
         }
     }
+    private void initNotificationPanel() {
+        JPanel notificationPanel = new JPanel(new BorderLayout());
+        notificationPanel.setBorder(BorderFactory.createTitledBorder("Notifications"));
 
+        DefaultTableModel notificationModel = new DefaultTableModel(
+                new Object[]{"Time", "Message"}, 0
+        );
+        JTable notificationTable = new JTable(notificationModel);
+
+        Timer timer = new javax.swing.Timer(5000, e -> {
+            notificationModel.setRowCount(0);
+            ArrayList<String> lines = Panel.returnFileLines("Notifications.txt");
+            SimpleDateFormat displayFormat = new SimpleDateFormat("HH:mm:ss");
+
+            for (String line : lines) {
+                if (line.contains("User: " + username)) {
+                    String[] parts = line.split(", ");
+                    try {
+                        Date date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                                .parse(parts[3].split(": ")[1]);
+                        notificationModel.addRow(new Object[]{
+                                displayFormat.format(date),
+                                parts[1].split("Message: ")[1]
+                        });
+                    } catch (Exception ex) {
+                        ex.printStackTrace(); // Handle parsing errors
+                    }
+                }
+            }
+        });
+
+        timer.start();
+
+        notificationPanel.add(new JScrollPane(notificationTable), BorderLayout.CENTER);
+        add(notificationPanel, BorderLayout.EAST);
+    }
+
+    // Modified updateOrderStatus method
     private void updateOrderStatus(String newStatus) {
         int selectedRow = orderTable.getSelectedRow();
         if (selectedRow == -1) {
@@ -407,19 +466,22 @@ public class VendorDashboard extends JFrame {
         }
 
         String orderId = orderTable.getValueAt(selectedRow, 0).toString();
+        String customer = orderTable.getValueAt(selectedRow, 1).toString();
+        String total = ""; // You need to retrieve the actual total from your data
 
         // Update Order_Info.txt
         ArrayList<String> lines = Panel.returnFileLines("Order_Info.txt");
-
         try (BufferedWriter writer = new BufferedWriter(new FileWriter("Order_Info.txt"))) {
             for (String line : lines) {
                 if (line.startsWith("OrderID: " + orderId)) {
-                    // Handle different formats in the line
                     if (line.contains("Status: ")) {
                         line = line.replaceAll("Status: [^,]+", "Status: " + newStatus);
                     } else {
-                        // If status field doesn't exist, append it
                         line += ", Status: " + newStatus;
+                    }
+                    // Extract total from the line if needed
+                    if (line.contains("Total: ")) {
+                        total = line.split("Total: ")[1].split(",")[0];
                     }
                 }
                 writer.write(line + "\n");
@@ -428,19 +490,56 @@ public class VendorDashboard extends JFrame {
             JOptionPane.showMessageDialog(this, "Error updating order status: " + e.getMessage());
         }
 
-        // Update Order_History.txt if status is Declined or Ready
+        // Handle declined orders
+        if (newStatus.equals("Declined")) {
+            refundCustomerCredit(orderId);
+        }
+
+        // Update order history and UI
         if (newStatus.equals("Declined") || newStatus.equals("Ready")) {
             updateOrderHistory(orderId, newStatus);
         }
 
-        // Update table
         orderModel.setValueAt(newStatus, selectedRow, 4);
         JOptionPane.showMessageDialog(this, "Order status updated to " + newStatus);
 
-        // Refresh orders if needed
+        // Refresh data if needed
         if (newStatus.equals("Declined") || newStatus.equals("Ready")) {
             loadOrders();
             loadOrderHistory();
+        }
+
+        // Send notifications
+        Panel.sendNotification(customer,
+                "Order #" + orderId + " status changed to " + newStatus,
+                "ORDER_STATUS"
+        );
+
+        if (newStatus.equals("Declined")) {
+            Panel.sendNotification(customer,
+                    "Refund of RM " + total + " processed for order #" + orderId,
+                    "PAYMENT"
+            );
+        }
+    }
+    // Method to refund customer credit if an order is declined
+    private void refundCustomerCredit(String orderId) {
+        ArrayList<String> orderLines = Panel.returnFileLines("Order_History.txt");
+        for (String line : orderLines) {
+            if (line.startsWith(orderId + ", ")) {
+                double amount = Double.parseDouble(line.split(", ")[2]);
+                String customer = line.split(", ")[3];
+
+                ArrayList<String> creditLines = Panel.returnFileLines("Customer_Credits.txt");
+                for (int i = 0; i < creditLines.size(); i++) {
+                    if (creditLines.get(i).contains("Username: " + customer)) {
+                        double current = Double.parseDouble(creditLines.get(i).split(", Credit: ")[1]);
+                        creditLines.set(i, String.format("Username: %s, Credit: %.2f", customer, current + amount));
+                        Panel.writeFile("Customer_Credits.txt", creditLines);
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -452,12 +551,10 @@ public class VendorDashboard extends JFrame {
                 if (line.startsWith(orderId + ", ")) {
                     String[] parts = line.split(", ");
                     StringBuilder newLine = new StringBuilder();
-
                     for (int i = 0; i < parts.length - 1; i++) {
                         newLine.append(parts[i]).append(", ");
                     }
                     newLine.append(newStatus);
-
                     writer.write(newLine.toString() + "\n");
                 } else {
                     writer.write(line + "\n");
@@ -477,10 +574,9 @@ public class VendorDashboard extends JFrame {
             String[] parts = line.split(", ");
             String orderId = parts[0];
 
-            // Find matching order in Order_Info.txt to get vendor
             for (String infoLine : orderInfoLines) {
                 if (infoLine.contains("OrderID: " + orderId) && infoLine.contains("Vendor: " + username)) {
-                    String date = new SimpleDateFormat("yyyy-MM-dd").format(new Date()); // In reality, date should be stored in the order
+                    String date = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
                     String customer = parts[3];
                     String items = parts[1];
                     double total = Double.parseDouble(parts[2]);
@@ -494,10 +590,7 @@ public class VendorDashboard extends JFrame {
     }
 
     private void filterOrderHistory(String period) {
-        // In a real application, we would filter based on dates
-        // For this sample, we'll just show a message
         JOptionPane.showMessageDialog(this, "Filtering by " + period + " period");
-        // The actual implementation would filter the historyModel based on the period
     }
 
     private void loadReviews() {
@@ -522,7 +615,6 @@ public class VendorDashboard extends JFrame {
         Map<String, Object> stats = new HashMap<>();
         Map<String, Integer> itemCount = new HashMap<>();
 
-        // Calculate from order history
         ArrayList<String> lines = Panel.returnFileLines("Order_History.txt");
         ArrayList<String> orderInfoLines = Panel.returnFileLines("Order_Info.txt");
 
@@ -533,7 +625,6 @@ public class VendorDashboard extends JFrame {
             String[] parts = line.split(", ");
             String orderId = parts[0];
 
-            // Find matching order in Order_Info.txt to get vendor
             for (String infoLine : orderInfoLines) {
                 if (infoLine.contains("OrderID: " + orderId) &&
                         infoLine.contains("Vendor: " + username) &&
@@ -543,19 +634,16 @@ public class VendorDashboard extends JFrame {
                     totalRevenue += total;
                     orderCount++;
 
-                    // Count items for top-selling
                     String items = parts[1];
                     for (String item : items.split(",")) {
                         String itemTrim = item.trim();
                         itemCount.put(itemTrim, itemCount.getOrDefault(itemTrim, 0) + 1);
                     }
-
                     break;
                 }
             }
         }
 
-        // Find top selling item
         String topItem = "None";
         int maxCount = 0;
         for (Map.Entry<String, Integer> entry : itemCount.entrySet()) {
@@ -565,7 +653,6 @@ public class VendorDashboard extends JFrame {
             }
         }
 
-        // Calculate average rating
         double totalRating = 0.0;
         int ratingCount = 0;
         ArrayList<String> reviewLines = Panel.returnFileLines("Reviews.txt");
@@ -581,14 +668,13 @@ public class VendorDashboard extends JFrame {
         stats.put("totalOrders", (double) orderCount);
         stats.put("totalRevenue", totalRevenue);
         stats.put("avgOrderValue", orderCount > 0 ? totalRevenue / orderCount : 0.0);
-        stats.put("topItem", topItem); // Now storing the String directly
+        stats.put("topItem", topItem);
         stats.put("avgRating", ratingCount > 0 ? totalRating / ratingCount : 0.0);
 
         return stats;
     }
 
     public static void main(String[] args) {
-        // For testing
         SwingUtilities.invokeLater(() -> new VendorDashboard("vendor1"));
     }
 }

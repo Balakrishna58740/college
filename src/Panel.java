@@ -1,5 +1,7 @@
 import java.io.*;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 
 public class Panel {
 
@@ -13,8 +15,13 @@ public class Panel {
         createIfNotExists("Vendor_Menu_Details.txt");
         createIfNotExists("Order_History.txt");
         createIfNotExists("Order_Info.txt");
+        createIfNotExists("Notifications.txt");
+        createIfNotExists("Delivery_Tasks.txt");
+        createIfNotExists("Reviews.txt");
+        createIfNotExists("Transaction_Receipts.txt");// Adding the Notifications file
     }
 
+    // Create a file if it doesn't already exist
     private static void createIfNotExists(String filename) {
         try {
             File file = new File(filename);
@@ -50,6 +57,17 @@ public class Panel {
         }
     }
 
+    // Write all lines to a file (overwrites existing content)
+    public static void writeFile(String filename, ArrayList<String> lines) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(filename))) {
+            for (String line : lines) {
+                writer.write(line + "\n");
+            }
+        } catch (IOException e) {
+            System.out.println("Error writing to file: " + filename);
+        }
+    }
+
     // Modify specific line in a file
     public static void makeChangesToTheFile(String filename, int lineNumber, String newContent) {
         ArrayList<String> lines = returnFileLines(filename);
@@ -63,6 +81,17 @@ public class Panel {
                 System.out.println("Error updating file: " + filename);
             }
         }
+    }
+
+    // Send notification with username, message, and type
+    public static void sendNotification(String username, String message, String type) {
+        String entry = String.format("User: %s, Message: %s, Type: %s, Time: %s",
+                username,
+                message,
+                type,
+                new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date())
+        );
+        writeToFile("Notifications.txt", entry);
     }
 
     // Original panel display methods (keep for compatibility)
@@ -80,5 +109,11 @@ public class Panel {
 
     public static void displayDeliveryRunnerPanel() {
         System.out.println("\n=== Delivery Runner Panel ===");
+    }
+
+    // Main method for testing purposes
+    public static void main(String[] args) {
+        checkFiles();  // Initialize files
+        sendNotification("admin", "New order placed", "info"); // Sending a notification
     }
 }

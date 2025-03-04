@@ -1,0 +1,3 @@
+OrderID: 6834, Vendor: 1, Customer: 1, Items: Paneer Tikka, Total: 1202.00, Status: Ready
+OrderID: 6077, Vendor: 1, Customer: 1, Items: Paneer Tikka; Chowmein, Total: 14502.00, Status: Ready
+OrderID: 3188, Vendor: 1, Customer: 1, Items: Mo:Mo, Total: 2268.00, Status: Ready
